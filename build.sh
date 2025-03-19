@@ -138,6 +138,24 @@ function getclang() {
       ClangPath="${MainClangPath}"-zyc
       export PATH="${ClangPath}/bin:${PATH}"
     fi
+  elif [ "${ClangName}" = "greenforce" ]; then
+    if [ ! -f "${MainClangPath}-greenforce/bin/clang" ]; then
+      echo "[!] Clang is set to greenforce, cloning it..."
+      mkdir -p ${MainClangPath}-greenforce
+      cd clang-greenforce
+      wget -q https://raw.githubusercontent.com/greenforce-project/greenforce_clang/main/get_latest_url.sh
+      source get_latest_url.sh; rm -rf get_latest_url.sh
+      wget -q $LATEST_URL_GZ -O "greenforce-clang.tar.gz"
+      tar -xf greenforce-clang.tar.gz
+      ClangPath="${MainClangPath}"-greenforce
+      export PATH="${ClangPath}/bin:${PATH}"
+      rm -f greenforce-clang.tar.gz
+      cd ..
+    else
+      echo "[!] Clang already exists. Skipping..."
+      ClangPath="${MainClangPath}"-greenforce
+      export PATH="${ClangPath}/bin:${PATH}"
+    fi
   else
     echo "[!] Incorrect clang name. Check config.env for clang names."
     exit 1
@@ -234,7 +252,11 @@ function ksu_patch() {
 }
 
 function apatch_support() {
-  sed -i "s/CONFIG_APATCH_SUPPORT=n/CONFIG_APATCH_SUPPORT=y/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+  if [ "$APATCH" = "yes" ]; then
+    sed -i "s/CONFIG_APATCH_SUPPORT=n/CONFIG_APATCH_SUPPORT=y/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+  else
+    sed -i "s/CONFIG_APATCH_SUPPORT=y/CONFIG_APATCH_SUPPORT=n/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+  fi
 }
 
 function root_function() {
