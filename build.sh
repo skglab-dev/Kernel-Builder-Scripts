@@ -247,7 +247,11 @@ function ksu_patch() {
   if [ "$KSU_AS_MODULES" = "yes" ]; then
     sed -i "s/CONFIG_KSU=n/CONFIG_KSU=m/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
   else
-    sed -i "s/CONFIG_KSU=n/CONFIG_KSU=y/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+    if [ "$KERNELSU" = "yes" ]; then
+      sed -i "s/CONFIG_KSU=n/CONFIG_KSU=y/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+    else
+      sed -i "s/CONFIG_KSU=y/CONFIG_KSU=n/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+    fi
   fi
 }
 
