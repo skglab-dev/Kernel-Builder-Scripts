@@ -17,6 +17,7 @@
 #
 # Script for krenel compilation !!
 
+time {
 export OS_ID="$(grep '^ID=' /etc/os-release | sed 's/ID=*//g')"
 
 function show_help() {
@@ -417,3 +418,4 @@ END=$(date +"%s")
 DIFF=$(($END - $START))
 fi
 fi
+}
