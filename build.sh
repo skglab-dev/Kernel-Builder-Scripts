@@ -286,6 +286,17 @@ function root_function() {
   fi
 }
 
+# NetHunter enabled automaticlly when KernelSU is enabled, so don't disable it when KernelSU is enabled
+function nethunter_support() {
+  if [ "$NETHUNTER" = "yes" ] || [ "$KERNELSU" = "yes" ]; then
+    sed -i "s/CONFIG_NETHUNTER_SUPPORT=n/CONFIG_NETHUNTER_SUPPORT=y/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+  else
+    if [ "$KERNELSU" = "no" ]; then
+      sed -i "s/CONFIG_NETHUNTER_SUPPORT=y/CONFIG_NETHUNTER_SUPPORT=n/g" arch/${ARCH}/configs/${DEVICE_DEFCONFIG}
+    fi
+  fi
+}
+
 function upload() {
   #if [ ! -f "/var/www/html/$1" ] then
   #  rm -rf /var/www/html/$1
@@ -398,6 +409,7 @@ if [ "$CLANG_ONLY" = "no" ]; then
 clonegcc
 fi
 root_function
+nethunter_support
 compile
 zipping
 cleanup
