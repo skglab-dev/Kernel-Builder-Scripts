@@ -224,22 +224,27 @@ function updateclang() {
 }
 
 function clonegcc() {
-  if [ "$ENABLE_GCC64" = "yes" ];then
-    git clone https://github.com/rokibhasansagar/linaro-toolchain-latest.git -b latest-7 --depth=1 gcc-64
-    CrossCompileFlag64="${MainPath}/gcc-64/bin/aarch64-linux-gnu-"
-  else
+  if [ "$CLANG_ONLY" = "yes" ]; then
     CrossCompileFlag64="aarch64-linux-gnu-"
-  fi
-  if [ "$ENABLE_GCC32" = "yes" ]; then
-    if [[ -f "${MainPath}/gcc-32" ]]; then
-      mkdir gcc-32
-      wget -O gcc-arm.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
-      tar -C gcc-32/ -zxvf gcc-arm.tar.gz
-      rm -rf gcc-arm.tar.gz
-    fi
-    CrossCompileFlag32="${MainPath}/gcc-32/bin/arm-linux-androideabi-"
-  else
     CrossCompileFlag32="arm-linux-gnueabi-"
+  else
+    if [ "$ENABLE_GCC64" = "yes" ];then
+        git clone https://github.com/rokibhasansagar/linaro-toolchain-latest.git -b latest-7 --depth=1 gcc-64
+        CrossCompileFlag64="${MainPath}/gcc-64/bin/aarch64-linux-gnu-"
+    else
+        CrossCompileFlag64="aarch64-linux-gnu-"
+    fi
+    if [ "$ENABLE_GCC32" = "yes" ]; then
+        if [[ -f "${MainPath}/gcc-32" ]]; then
+        mkdir gcc-32
+        wget -O gcc-arm.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
+        tar -C gcc-32/ -zxvf gcc-arm.tar.gz
+        rm -rf gcc-arm.tar.gz
+        fi
+        CrossCompileFlag32="${MainPath}/gcc-32/bin/arm-linux-androideabi-"
+    else
+        CrossCompileFlag32="arm-linux-gnueabi-"
+    fi
   fi
 }
 
@@ -406,9 +411,7 @@ DIFF=$(($END - $START))
 else
 getclang
 updateclang
-if [ "$CLANG_ONLY" = "no" ]; then
 clonegcc
-fi
 root_function
 nethunter_support
 compile
