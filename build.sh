@@ -383,12 +383,6 @@ ak_update_kernel_name() {
   sed -i "s/kernel.string=*/kernel.string=$KERNEL_NAME by $KBUILD_BUILD_USER@$KBUILD_BUILD_HOST/g" ${AnyKernelPath}/anykernel.sh
 }
 
-ak_enable_dtb_flash() {
-  if [ "$USING_DTB" != "no" ]; then
-    sed -i "s/kernel_flash_dtb=no/kernel_flash_dtb=yes/g" ${AnyKernelPath}/anykernel.sh
-  fi
-}
-
 defconfig_store_content() {
   stored_defconfig_contenet="$(cat $DEFCONFIG_FILE)"
 }
@@ -574,6 +568,7 @@ else
   KERNEL_COMPRESSION_LEVEL=0
   KERNEL_COMPRESSION_LEVEL_NAME=""
 fi
+KERNEL_BOOTIMG_NAME="boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME"
 
 if [ "$BAZEL_BUILD" = "yes" ]; then
     IMAGE="${MainPath}/bazel-bin/common/kernel_aarch64/$KERNEL_IMAGE_NAME"
@@ -619,8 +614,10 @@ else
 fi
 
 GenerateBootImage() {
+  a_print lg "Generating $KERNEL_BOOTIMG_NAME..."
   $MKBOOTIMG --header_version 4 --kernel $KERNEL_IMAGE_NAME --output boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img
   $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY
+  a_print lb "$KERNEL_BOOTIMG_NAME generated succesfully."
 }
 
 # Start Compile
@@ -679,7 +676,7 @@ Compiler: $KBUILD_COMPILER_STRING"
   if [[ -f "$IMAGE" ]]; then
     cd ${MainPath}
     if [ "$USING_BOOTIMG" = "yes" ]; then
-      a_print lg "Building boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img"
+      a_print lg "Building $KERNEL_BOOTIMG_NAME.img"
 
       if [ ! -d "bootimgs" ]; then
         mkdir bootimgs
@@ -688,12 +685,15 @@ Compiler: $KBUILD_COMPILER_STRING"
       cp $IMAGE ./$KERNEL_IMAGE_NAME
       GenerateBootImage
 
-      if [ -f "boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img" ]; then
+      if [ -f "$KERNEL_BOOTIMG_NAME.img" ]; then
         cd $KernelPath
         changelogs
         cd $MainPath
         zipping
+      else
+        a_print lr "Failed to build $KERNEL_BOOTIMG_NAME, , Check console log to fix it!"
       fi
+
       cd ${MainPath}
     else
       if [ ! -d "${AnyKernelPath}" ]; then
@@ -701,10 +701,11 @@ Compiler: $KBUILD_COMPILER_STRING"
       fi
       cp $IMAGE ${AnyKernelPath}
 
-      if [ "$USING_DTB" = "custom" ]; then
+      if [ "$USING_DTB" = "prebuilt" ]; then
         cp $DTB_FILE ${AnyKernelPath}/dtb
         cp $DTBO_FILE ${AnyKernelPath}/dtbo
-        #python3 scripts/mkdtboimg.py create ${AnyKernelPath}/dtbo --page_size=4096 $DTBO_FILE
+      elif [ "$USING_DTB" = "custom" ]; then
+        python3 scripts/mkdtboimg.py create ${AnyKernelPath}/dtbo --page_size=4096 $DTBO_FILE
       fi
 
       changelogs
@@ -731,7 +732,6 @@ function zipping() {
     cd ${AnyKernelPath} || exit 1
     ak_store_script_content
     ak_update_kernel_name
-    ak_enable_dtb_flash
     if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
       cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
     fi
