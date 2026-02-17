@@ -93,7 +93,7 @@ function set_git_user() {
 }
 
 function install_dependencies() {
-  if [ "$OS_ID" = "ubuntu" ] || [ "$1" = "ubuntu" ]; then
+  if [ "$OS_ID" = "ubuntu" ] || [ "$OS_ID" = "neon" ] || [ "$1" = "ubuntu" ]; then
     a_print lb "Installing build dependencies for Ubuntu"
     sudo apt-get update -y
     sudo apt-get -y install bc bison build-essential ccache curl flex g++-multilib gcc-multilib git git-lfs \
@@ -260,7 +260,7 @@ function getclang() {
       cd clang-greenforce
       wget -q https://raw.githubusercontent.com/greenforce-project/greenforce_clang/main/get_latest_url.sh
       source get_latest_url.sh; rm -rf get_latest_url.sh
-      wget -q $LATEST_URL_GZ -O "greenforce-clang.tar.gz"
+      wget -q $LATEST_URL -O "greenforce-clang.tar.gz"
       tar -xf greenforce-clang.tar.gz
       ClangPath="${MainClangPath}"-greenforce
       export PATH="${ClangPath}/bin:${PATH}"
@@ -712,8 +712,9 @@ Compiler: $KBUILD_COMPILER_STRING"
       zipping
     fi
   else
+    timeOut=$(updateTime)
     BUILD_RESULT="❌ Compile Kernel for $DEVICE_MODEL failed, Check console log to fix it!"
-    a_print lr "$BUILD_RESULT"
+    a_print lr "$BUILD_RESULT, Completed in $timeOut"
     if [ "$BAZEL_BUILD" = "yes" ]; then
       tgm "$BUILD_RESULT"
     else
@@ -739,8 +740,7 @@ function zipping() {
     zip -q -r9 ${KERNEL_ZIP} * -x .git README.md *placeholder
   fi
 
-  END=$(date +"%s")
-  DIFF=$(( $END - $START ))
+  timeOut=$(updateTime)
 
   #upload ${KERNEL_ZIP}
   BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
@@ -751,13 +751,13 @@ Kernel Variant: $BUILD_VARIANT
 Kernel Codename: $CODENAME
 Compiler: $KBUILD_COMPILER_STRING
 
-Completed in $(($DIFF/3600)) hours $(($DIFF %3600 / 60)) minutes and $(($DIFF % 60)) seconds.
+Completed in $timeOut
 
 $PRINT_CHANGELOG"
 
   a_print lg "File: ${AnyKernelPath}/${KERNEL_ZIP}"
   a_print lc "
-    Compilation took $(($DIFF/3600)) hours $(($DIFF %3600 / 60)) minutes and $(($DIFF % 60)) seconds."
+    Compieted in ${timeOut}"
 
   #echo $BUILD_RESULT
   tgannounce $KERNEL_ZIP "$BUILD_RESULT"
@@ -782,8 +782,7 @@ function cleanup() {
 }
 
 function ctrl_c() {
-  END=$(date +"%s")
-  DIFF=$(( $END - $START ))
+  timeOut=$(updateTime)
 
   BUILD_RESULT="❌ Compile Kernel for $DEVICE_MODEL was interrupted!
   
@@ -793,6 +792,22 @@ Reason: CtrL+C detected."
   a_print lr "$BUILD_RESULT"
   cleanup
   exit 1
+}
+
+updateTime() {
+  END=$(date +"%s")
+  DIFF=$(( $END - $START ))
+
+  hours=$((DIFF / 3600))
+  minutes=$(( (DIFF % 3600) / 60 ))
+  seconds=$((DIFF % 60))
+  str=""
+
+  (( hours > 0 ))   && str+="${hours}h "
+  (( minutes > 0 )) && str+="${minutes}m "
+  (( seconds > 0 )) && str+="${seconds}s"
+
+  printf "%s" "$str"
 }
 
 trap ctrl_c INT
