@@ -146,7 +146,7 @@ function file_restore_content() {
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 show_help
 elif [ "$1" = "--ghconf" ]; then
-set_git_user $2 "nullptr03" "nullptr03@singkolab.my.id"
+set_git_user $2 $DEFAULT_GIT_USER $DEFAULT_GIT_EMAIL
 elif [ "$1" = "--setup" ]; then
 install_dependencies $2
 else
@@ -282,7 +282,7 @@ function getclang() {
   elif [ -f 'gitignore' ]; then
     mv gitignore .gitignore
   fi
-  if [ -z $COMPILER_STRING ]; then
+  if [ "$COMPILER_STRING" = "default" ]; then
     if [ -f "${ClangPath}/bin/clang" ]; then
       export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
     else
@@ -592,7 +592,7 @@ getdtb() {
     fi
   elif [ "$USING_DTB" = "custom" ]; then
     DTS_DIR="${MainPath}/out/arch/arm64/boot/dts/vendor/$ARCH_VENDOR"
-    DTB_FILE="$DTS_DIR/blair.dtb"
+    DTB_FILE="$DTS_DIR/$BOARD_CODENAME.dtb"
     DTBO_FILE="${MainPath}/out/arch/arm64/boot/dtbo.img"
   else
     a_print lr "USING_DTB config is not set, skipping DTB."
@@ -654,7 +654,6 @@ compile(){
 
 Kernel Version: $KERNELVERSION$LOCALVERSION
 Kernel Variant: $BUILD_VARIANT
-Kernel Codename: $CODENAME
 Compiler: $KBUILD_COMPILER_STRING"
 
   if [ "$BAZEL_BUILD" = "yes" ]; then
@@ -748,7 +747,6 @@ function zipping() {
 Build date: $BUILD_DATE2
 Kernel Version: $KERNELVERSION$LOCALVERSION
 Kernel Variant: $BUILD_VARIANT
-Kernel Codename: $CODENAME
 Compiler: $KBUILD_COMPILER_STRING
 
 Completed in $timeOut
