@@ -72,7 +72,7 @@ a_print() {
 export OS_ID="$(grep '^ID=' /etc/os-release | sed 's/ID=*//g')"
 
 function show_help() {
-  a_print lc "--ghconf      -g, --global,  Set git user.name and user.password for git project
+  a_print lc "--ghconf      -g, --global,  Set git user.name and user.email for git project
 --setup       Installing the build dependencies (auto os detection)
 --setup2      Installing the build dependencies and start build (auto os detection)
 --zip         Zipping the whole anykernel folder and upload it
@@ -146,7 +146,7 @@ function file_restore_content() {
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 show_help
 elif [ "$1" = "--ghconf" ]; then
-set_git_user $2 $DEFAULT_GIT_USER $DEFAULT_GIT_EMAIL
+set_git_user $2 "nullptr03" "singkolab.my.id"
 elif [ "$1" = "--setup" ]; then
 install_dependencies $2
 else
@@ -395,9 +395,17 @@ defconfig_restore_content() {
 }
 
 load_device_defconfig() {
-  DEFCONFIG_FILE="${KernelPath}/arch/${ARCH}/configs/${DEVICE_DEFCONFIG}"
+  if [ "$ENABLE_MULTICONFIG" == "yes" ]; then
+    DEFCONFIG_FILE="${KernelPath}/arch/${ARCH}/configs/vendor/${FRAGMENT_CONFIG}"
+  else
+    DEFCONFIG_FILE="${KernelPath}/arch/${ARCH}/configs/${DEVICE_DEFCONFIG}"
+  fi
   if [ ! -f "$DEFCONFIG_FILE" ]; then
-    a_print lr "$DEVICE_DEFCONFIG config does not exists, abortting!"
+    if [ "$ENABLE_MULTICONFIG" == "yes" ]; then
+      a_print lr "$FRAGMENT_CONFIG fragment config does not exists, abortting!"
+    else
+      a_print lr "$DEVICE_DEFCONFIG config does not exists, abortting!"
+    fi
     exit 1
   fi
   defconfig_store_content
@@ -515,8 +523,7 @@ changelogs() {
     cd $old_path
     
     GENERATED_CHANGELOG="$(head -n "$TELEGRAM_MAX_CHANGELOG" "${ChangelogPath}/${CHANGELOG_FILE_NAME}")"
-    PRINT_CHANGELOG="
-Changelog (GitHub):
+    PRINT_CHANGELOG="Changelog (GitHub):
 <blockquote expandable>$GENERATED_CHANGELOG</blockquote>"
   else
     PRINT_CHANGELOG=""
@@ -526,6 +533,7 @@ Changelog (GitHub):
 # Enviromental variable
 BUILD_DATE="$(date "+%Y%m%d")"
 BUILD_DATE2="$(date "+%B %d, %Y")"
+KBUILD_BUILD_TIMESTAMP="$(date)"
 VERSION="$(grep '^VERSION = ' ${KernelPath}/Makefile | sed 's/VERSION = *//g')"
 PATCHLEVEL="$(grep '^PATCHLEVEL = ' ${KernelPath}/Makefile | sed 's/PATCHLEVEL = *//g')"
 SUBLEVEL="$(grep '^SUBLEVEL = ' ${KernelPath}/Makefile | sed 's/SUBLEVEL = *//g')"
@@ -584,9 +592,9 @@ getdtb() {
       fi
       wget -q $PREBUILT_DTBLINK -O "dtb"
     fi
-      if [ -f "dtbo" ]; then
-        rm -rf dtbo
-      fi
+    if [ -f "dtbo" ]; then
+      rm -rf dtbo
+    fi
     if [ ! -z "$PREBUILT_DTBOLINK" ]; then
       wget -q $PREBUILT_DTBOLINK -O "dtbo"
     fi
@@ -625,7 +633,31 @@ CORES="$(nproc --all)"
 START=$(date +"%s")
 
 StartMake() {
-  make O=out ARCH=$ARCH $DEVICE_DEFCONFIG
+  export MSM_ARCH=$BOARD_CODENAME
+  
+  if [ "$ENABLE_MULTICONFIG" == "yes" ]; then
+    # make O=out ARCH=$ARCH $BASE_CONFIG
+
+    BASE_CONFIG_PATH="${KernelPath}/arch/${ARCH}/configs/${BASE_CONFIG}"
+    FRAGMENT_CONFIG_PATH="${KernelPath}/arch/${ARCH}/configs/vendor/${FRAGMENT_CONFIG}"
+    if [ -f "$FRAGMENT_CONFIG_PATH" ]; then
+      #a_print lb "$FRAGMENT_CONFIG fragment detected, merging!"
+      MERGED_CONFIG_PATH="$KernelPath/arch/$ARCH/configs/merged_defconfig"
+      awk -F= '!seen[$1]++' $BASE_CONFIG_PATH $FRAGMENT_CONFIG_PATH > $MERGED_CONFIG_PATH
+      #bash scripts/kconfig/merge_config.sh -m .config $FRAGMENT_CONFIG_PATH
+    else
+      MERGED_CONFIG_PATH=""
+      #a_print lr "$FRAGMENT_CONFIG config does not exists, abortting!"
+    fi
+    make O=out ARCH=$ARCH merged_defconfig
+    # comment this code bellow if you want to take the merged config content
+    if [ -f "$MERGED_CONFIG_PATH" ]; then
+      rm -f $MERGED_CONFIG_PATH
+    fi
+  else
+    make O=out ARCH=$ARCH $DEVICE_DEFCONFIG
+  fi
+
   if [ "$CLANG_ONLY" = "yes" ]; then
     make -j"$CORES" ARCH=$ARCH O=out \
       CC=clang \
@@ -701,8 +733,12 @@ Compiler: $KBUILD_COMPILER_STRING"
       cp $IMAGE ${AnyKernelPath}
 
       if [ "$USING_DTB" = "prebuilt" ]; then
-        cp $DTB_FILE ${AnyKernelPath}/dtb
-        cp $DTBO_FILE ${AnyKernelPath}/dtbo
+        if [ -f "$DTB_FILE" ]; then
+          cp $DTB_FILE ${AnyKernelPath}/dtb
+        fi
+        if [ -f "$DTBO_FILE" ]; then
+          cp $DTBO_FILE ${AnyKernelPath}/dtbo
+        fi
       elif [ "$USING_DTB" = "custom" ]; then
         python3 scripts/mkdtboimg.py create ${AnyKernelPath}/dtbo --page_size=4096 $DTBO_FILE
       fi
@@ -742,6 +778,8 @@ function zipping() {
   timeOut=$(updateTime)
 
   #upload ${KERNEL_ZIP}
+
+if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
   BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
 Build date: $BUILD_DATE2
@@ -752,13 +790,27 @@ Compiler: $KBUILD_COMPILER_STRING
 Completed in $timeOut
 
 $PRINT_CHANGELOG"
+else
+  BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+
+Build date: $BUILD_DATE2
+Kernel Version: $KERNELVERSION$LOCALVERSION
+Kernel Variant: $BUILD_VARIANT
+Compiler: $KBUILD_COMPILER_STRING
+
+$PRINT_CHANGELOG"
+fi
 
   a_print lg "File: ${AnyKernelPath}/${KERNEL_ZIP}"
   a_print lc "
     Compieted in ${timeOut}"
 
   #echo $BUILD_RESULT
-  tgannounce $KERNEL_ZIP "$BUILD_RESULT"
+  if [ "$TELEGRAM_UPLOADFILE" == "yes" ]; then
+    tgannounce $KERNEL_ZIP "$BUILD_RESULT"
+  else
+    tgm "$BUILD_RESULT"
+  fi
   cd ..
   cleanup
 }
