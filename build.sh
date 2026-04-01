@@ -116,9 +116,9 @@ function install_dependencies() {
   elif [ "$OS_ID" = "arch" ] || [ "$1" = "arch" ]; then
     a_print lb "Installing build dependencies for Arch Linux"
     sudo pacman -Syu --noconfirm
-    sudo pacman -S --noconfirm bc bison ccache curl flex gmp git git-lfs gperf imagemagick \
-    jdk-openjdk lib32-readline lib32-zlib libelf libelf-dev lz4 ncurses5-compat-libs \
-    openssl protobuf python-pip readline rsync sdl lib32-sdl squashfs-tools xz zip zlib
+    sudo pacman -S --needed bc bison base-devel ccache curl flex gcc gcc-multilib git git-lfs \
+    gnupg gperf imagemagick protobuf python-protobuf lib32-readline lib32-zlib elfutils lz4 \
+    sdl lib32-gcc-libs openssl libxml2 lzop pngcrush rsync squashfs-tools libxslt zip zlib
   else
     a_print ly "Your operating system is $OS_ID, you may need to install the build dependencies manually"
   fi
@@ -167,7 +167,7 @@ MainClangPath="${MainPath}/clang"
 AnyKernelPath="${MainPath}/anykernel"
 CrossCompileFlagTriple="aarch64-linux-gnu-"
 
-# 
+#
 if [ -d "${MainPath}/common" ]; then
     BAZEL_BUILD="yes"
     a_print lg "Common kernel detected, use bazel build method."
@@ -271,6 +271,22 @@ function getclang() {
       ClangPath="${MainClangPath}"-greenforce
       export PATH="${ClangPath}/bin:${PATH}"
     fi
+  elif [ "${ClangName}" = "sparxiers" ]; then
+    if [ ! -f "${MainClangPath}-sparxiers/bin/clang" ]; then
+      a_print lb "Clang is set to sparxiers, cloning it..."
+      mkdir -p ${MainClangPath}-sparxiers
+      cd clang-sparxiers
+      wget -q https://github.com/anth-unv-gm/clang/releases/download/18/Sparxiers-clang-18.tar.xz
+      tar -xf Sparxiers-clang-18.tar.xz
+      ClangPath="${MainClangPath}"-sparxiers
+      export PATH="${ClangPath}/bin:${PATH}"
+      rm -f Sparxiers-clang-18.tar.xz
+      cd ..
+    else
+      a_print lg "Clang already exists. Skipping..."
+      ClangPath="${MainClangPath}"-sparxiers
+      export PATH="${ClangPath}/bin:${PATH}"
+    fi
   else
     a_print lr "Incorrect clang name. Check config.env for clang names."
     exit 1
@@ -318,7 +334,7 @@ function updateclang() {
       else
         a_print lg "No updates have been found, skipping..."
       fi
-      cd .. 
+      cd ..
     elif [ "${ClangName}" = "azure" ]; then
       cd clang-azure
       git fetch -q origin main
@@ -484,13 +500,13 @@ tgannounce() {
   "$2"
 }
 else
-tgm() { 
+tgm() {
   2>/dev/null
 }
-tgf() { 
+tgf() {
   2>/dev/null
 }
-tgannounce() { 
+tgannounce() {
   2>/dev/null
 }
 fi
@@ -502,7 +518,7 @@ function upload() {
   #mv $1 /var/www/html/
   #echo "http://128.199.250.112/$1"
   curl -F "file=@$1" https://temp.sh/upload
-  echo 
+  echo
 }
 
 # Changelog
@@ -521,7 +537,7 @@ changelogs() {
     git log -n $LOG_NUM --pretty=format:"$CHANGELOG_FORMAT" > "$ChangelogPath/$CHANGELOG_FILE_NAME"
     sed -i -e "s/^/- /" "$ChangelogPath/$CHANGELOG_FILE_NAME"
     cd $old_path
-    
+
     GENERATED_CHANGELOG="$(head -n "$TELEGRAM_MAX_CHANGELOG" "${ChangelogPath}/${CHANGELOG_FILE_NAME}")"
     PRINT_CHANGELOG="Changelog (GitHub):
 <blockquote expandable>$GENERATED_CHANGELOG</blockquote>"
@@ -607,10 +623,12 @@ getdtb() {
   fi
 }
 
-if [ "$IS_KERNELSU" = "m" ]; then
-  BUILD_VARIANT="KernelSU (LKM)"
-elif [ "$IS_KERNELSU" = "y" ]; then
+ksu_patch
+
+if [ "$IS_KERNELSU" = "y" ]; then
   BUILD_VARIANT="KernelSU"
+elif [ "$IS_KERNELSU" = "m" ]; then
+  BUILD_VARIANT="KernelSU (LKM)"
 else
   BUILD_VARIANT="Non-KSU"
 fi
@@ -634,7 +652,7 @@ START=$(date +"%s")
 
 StartMake() {
   export MSM_ARCH=$BOARD_CODENAME
-  
+
   if [ "$ENABLE_MULTICONFIG" == "yes" ]; then
     # make O=out ARCH=$ARCH $BASE_CONFIG
 
@@ -703,7 +721,7 @@ Compiler: $KBUILD_COMPILER_STRING"
       StartMake
     fi
   fi
-  
+
   if [[ -f "$IMAGE" ]]; then
     cd ${MainPath}
     if [ "$USING_BOOTIMG" = "yes" ]; then
@@ -779,26 +797,52 @@ function zipping() {
 
   #upload ${KERNEL_ZIP}
 
-if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
-  BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+if [ "$KERNELSU" == "yes" ]; then
+  if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
+    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
-Build date: $BUILD_DATE2
-Kernel Version: $KERNELVERSION$LOCALVERSION
-Kernel Variant: $BUILD_VARIANT
-Compiler: $KBUILD_COMPILER_STRING
+  Build date: $BUILD_DATE2
+  Kernel Version: $KERNELVERSION$LOCALVERSION
+  Kernel Variant: $BUILD_VARIANT
+  Compiler: $KBUILD_COMPILER_STRING
+  KernelSU Manager: $KERNELSU_MANAGER
 
-Completed in $timeOut
+  Completed in $timeOut
 
-$PRINT_CHANGELOG"
+  $PRINT_CHANGELOG"
+  else
+    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+
+  Build date: $BUILD_DATE2
+  Kernel Version: $KERNELVERSION$LOCALVERSION
+  Kernel Variant: $BUILD_VARIANT
+  Compiler: $KBUILD_COMPILER_STRING
+  KernelSU Manager: $KERNELSU_MANAGER
+
+  $PRINT_CHANGELOG"
+  fi
 else
-  BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+  if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
+    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
-Build date: $BUILD_DATE2
-Kernel Version: $KERNELVERSION$LOCALVERSION
-Kernel Variant: $BUILD_VARIANT
-Compiler: $KBUILD_COMPILER_STRING
+  Build date: $BUILD_DATE2
+  Kernel Version: $KERNELVERSION$LOCALVERSION
+  Kernel Variant: $BUILD_VARIANT
+  Compiler: $KBUILD_COMPILER_STRING
 
-$PRINT_CHANGELOG"
+  Completed in $timeOut
+
+  $PRINT_CHANGELOG"
+  else
+    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+
+  Build date: $BUILD_DATE2
+  Kernel Version: $KERNELVERSION$LOCALVERSION
+  Kernel Variant: $BUILD_VARIANT
+  Compiler: $KBUILD_COMPILER_STRING
+
+  $PRINT_CHANGELOG"
+  fi
 fi
 
   a_print lg "File: ${AnyKernelPath}/${KERNEL_ZIP}"
@@ -835,7 +879,7 @@ function ctrl_c() {
   timeOut=$(updateTime)
 
   BUILD_RESULT="❌ Compile Kernel for $DEVICE_MODEL was interrupted!
-  
+
 Reason: CtrL+C detected."
 
   tgm "$BUILD_RESULT"
@@ -875,7 +919,7 @@ getclang
 updateclang
 clonegcc
 fi
-ksu_patch
+#ksu_patch
 compile
 #zipping
 cleanup
