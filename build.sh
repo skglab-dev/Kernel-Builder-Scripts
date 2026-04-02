@@ -17,6 +17,11 @@
 #
 # Script for krenel compilation !!
 
+# Load variables from config.env
+set -a
+source config.env
+set +a
+
 # Color Definition
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -82,13 +87,13 @@ function show_help() {
 
 function set_git_user() {
   if [ "$1" = "-g" ] || [ "$1" = "--global" ]; then
-  git config --global user.name "$2"
-  git config --global user.email "$3"
-  a_print lg "Set global git config user to $2 <$3>"
+  git config --global user.name "$DEFAULT_GIT_USER"
+  git config --global user.email "$DEFAULT_GIT_EMAIL"
+  a_print lg "Set global git config user to $DEFAULT_GIT_USER <$DEFAULT_GIT_EMAIL>"
   elif [ ! -z "$1" ]; then
-  git config user.name "$2"
-  git config user.email "$3"
-  a_print lg "Set git config user to $2 <$3>"
+  git config user.name "$DEFAULT_GIT_USER"
+  git config user.email "$DEFAULT_GIT_EMAIL"
+  a_print lg "Set git config user to $DEFAULT_GIT_USER <$DEFAULT_GIT_EMAIL>"
   fi
 }
 
@@ -116,7 +121,7 @@ function install_dependencies() {
   elif [ "$OS_ID" = "arch" ] || [ "$1" = "arch" ]; then
     a_print lb "Installing build dependencies for Arch Linux"
     sudo pacman -Syu --noconfirm
-    sudo pacman -S --needed bc bison base-devel ccache curl flex gcc gcc-multilib git git-lfs \
+    sudo pacman -S --needed bc cpio bison base-devel ccache curl flex gcc gcc-multilib git git-lfs \
     gnupg gperf imagemagick protobuf python-protobuf lib32-readline lib32-zlib elfutils lz4 \
     sdl lib32-gcc-libs openssl libxml2 lzop pngcrush rsync squashfs-tools libxslt zip zlib
   else
@@ -146,7 +151,7 @@ function file_restore_content() {
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 show_help
 elif [ "$1" = "--ghconf" ]; then
-set_git_user $2 "nullptr03" "singkolab.my.id"
+set_git_user $2
 elif [ "$1" = "--setup" ]; then
 install_dependencies $2
 else
@@ -155,10 +160,8 @@ if [ "$1" = "--setup2" ]; then
 install_dependencies $2
 fi
 
-# Load variables from config.env
-set -a
-source config.env
-set +a
+# add version to kernel name
+KERNEL_NAME+="-$KERNEL_VERS"
 
 # Path
 MainPath="$(readlink -f -- $(pwd))"
@@ -467,6 +470,8 @@ function ksu_patch() {
       fi
     fi
     IS_KERNELSU="$(grep '^CONFIG_KSU=' ${DEFCONFIG_FILE} | sed 's/CONFIG_KSU=*//g')"
+  else
+    IS_KERNELSU="n"
   fi
 }
 
@@ -558,6 +563,9 @@ KERNELVERSION="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
 if [ $USE_CUSTOM_LOCALVERSION = "yes" ]; then
   if [ ! -z $CUSTOM_LOCALVERSION ]; then
     storeLocalVersion
+    if [ "$IS_KERNELSU" != "n" ]; then
+      CUSTOM_LOCALVERSION+="-KernelSU"
+    fi
     echo -n "-$CUSTOM_LOCALVERSION" > ${KernelPath}/localversion
   fi
   if [[ -f "${KernelPath}/localversion" ]]; then
@@ -625,18 +633,18 @@ getdtb() {
 
 ksu_patch
 
-if [ "$IS_KERNELSU" = "y" ]; then
+if [ "$IS_KERNELSU" != "n" ]; then
   BUILD_VARIANT="KernelSU"
-elif [ "$IS_KERNELSU" = "m" ]; then
-  BUILD_VARIANT="KernelSU (LKM)"
+  KERNEL_VARIANT_NAME="-$BUILD_VARIANT"
 else
   BUILD_VARIANT="Non-KSU"
+  KERNEL_VARIANT_NAME=""
 fi
 
 if [ "$USING_BOOTIMG" = "yes" ]; then
-  KERNEL_ZIP="${KERNEL_NAME}-boot-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
+  KERNEL_ZIP="${KERNEL_NAME}${KERNEL_VARIANT_NAME}-boot-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
 else
-  KERNEL_ZIP="${KERNEL_NAME}-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
+  KERNEL_ZIP="${KERNEL_NAME}${KERNEL_VARIANT_NAME}-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
 fi
 
 GenerateBootImage() {
@@ -702,7 +710,8 @@ StartMake() {
 compile(){
   tgm "Kernel Compilation for $DEVICE_MODEL has been started
 
-Kernel Version: $KERNELVERSION$LOCALVERSION
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
 Kernel Variant: $BUILD_VARIANT
 Compiler: $KBUILD_COMPILER_STRING"
 
@@ -797,51 +806,68 @@ function zipping() {
 
   #upload ${KERNEL_ZIP}
 
-if [ "$KERNELSU" == "yes" ]; then
+  # Fix empty compiler name if directly zipping using --zip option
+  if [ "$DIRECT_ZIP" = "yes" ]; then
+    if [ "$COMPILER_STRING" = "default" ]; then
+      if [ -f "${ClangPath}/bin/clang" ]; then
+        export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
+      else
+        export KBUILD_COMPILER_STRING="Unknown"
+      fi
+    else
+      export KBUILD_COMPILER_STRING="$COMPILER_STRING"
+    fi
+  fi
+  
+if [ "$IS_KERNELSU" != "n" ]; then
   if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
     BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
-  Build date: $BUILD_DATE2
-  Kernel Version: $KERNELVERSION$LOCALVERSION
-  Kernel Variant: $BUILD_VARIANT
-  Compiler: $KBUILD_COMPILER_STRING
-  KernelSU Manager: $KERNELSU_MANAGER
+Build date: $BUILD_DATE2
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
+Kernel Variant: $BUILD_VARIANT
+Compiler: $KBUILD_COMPILER_STRING
+KernelSU Manager: $KERNELSU_MANAGER
 
-  Completed in $timeOut
+Completed in $timeOut
 
-  $PRINT_CHANGELOG"
+$PRINT_CHANGELOG"
   else
     BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
-  Build date: $BUILD_DATE2
-  Kernel Version: $KERNELVERSION$LOCALVERSION
-  Kernel Variant: $BUILD_VARIANT
-  Compiler: $KBUILD_COMPILER_STRING
-  KernelSU Manager: $KERNELSU_MANAGER
+Build date: $BUILD_DATE2
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
+Kernel Variant: $BUILD_VARIANT
+Compiler: $KBUILD_COMPILER_STRING
+KernelSU Manager: $KERNELSU_MANAGER
 
-  $PRINT_CHANGELOG"
+$PRINT_CHANGELOG"
   fi
 else
   if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
     BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
-  Build date: $BUILD_DATE2
-  Kernel Version: $KERNELVERSION$LOCALVERSION
-  Kernel Variant: $BUILD_VARIANT
-  Compiler: $KBUILD_COMPILER_STRING
+Build date: $BUILD_DATE2
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
+Kernel Variant: $BUILD_VARIANT
+Compiler: $KBUILD_COMPILER_STRING
 
-  Completed in $timeOut
+Completed in $timeOut
 
-  $PRINT_CHANGELOG"
+$PRINT_CHANGELOG"
   else
     BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
 
-  Build date: $BUILD_DATE2
-  Kernel Version: $KERNELVERSION$LOCALVERSION
-  Kernel Variant: $BUILD_VARIANT
-  Compiler: $KBUILD_COMPILER_STRING
+Build date: $BUILD_DATE2
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
+Kernel Variant: $BUILD_VARIANT
+Compiler: $KBUILD_COMPILER_STRING
 
-  $PRINT_CHANGELOG"
+$PRINT_CHANGELOG"
   fi
 fi
 
@@ -870,7 +896,8 @@ function cleanup() {
     a_print lg "Cleanup done."
   fi
 
-  restoreLocalVersionNoCheck
+  #restoreLocalVersionNoCheck
+  git restore localversion
   ak_restore_script_content
   defconfig_restore_content
 }
@@ -911,9 +938,11 @@ if [ ! -d "${AnyKernelPath}" ]; then
   git clone -q --depth=1 ${AnyKernelRepo} -b ${AnyKernelBranch} ${AnyKernelPath}
 fi
 changelogs
+DIRECT_ZIP="yes"
 zipping
 ak_restore_script_content
 else
+DIRECT_ZIP="no"
 if [ "$BAZEL_BUILD" = "no" ]; then
 getclang
 updateclang
