@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Copyright (C) 2022-2023 Neebe3289 <neebexd@gmail.com>
-# Copyright (C) 2024-2025 nullptr03 <nullptr03@singkolab.my.id>
+# Copyright (C) 2024-2026 nullptr03 <nullptr03@singkolab.my.id>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,10 +17,11 @@
 #
 # Script for krenel compilation !!
 
-# Load variables from config.env
-set -a
-source config.env
-set +a
+if [ ! -z $1 ]; then
+var=$1 # $@
+else
+var=null
+fi
 
 # Color Definition
 RED='\033[0;31m'
@@ -73,15 +74,19 @@ a_print() {
   echo -e "${COLOR}$TEXT${WHITE}"
 }
 
+set -a
+source config.env
+set +a
+
 # OS detection
 export OS_ID="$(grep '^ID=' /etc/os-release | sed 's/ID=*//g')"
 
 function show_help() {
   a_print lc "--ghconf      -g, --global,  Set git user.name and user.email for git project
 --setup       Installing the build dependencies (auto os detection)
---setup2      Installing the build dependencies and start build (auto os detection)
---zip         Zipping the whole anykernel folder and upload it
 --cleanup     Delete the anykernel and out folder
+-z, --zip     Zipping the whole anykernel folder and upload it
+-c, --clean   Start a clean build
 -h, --help    Show this help message"
 }
 
@@ -148,20 +153,29 @@ function file_restore_content() {
   fi
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+if [ $var = "-h" ] || [ $var = "--help" ]; then
 show_help
-elif [ "$1" = "--ghconf" ]; then
+exit 1
+elif [ $var = "--ghconf" ]; then
 set_git_user $2
-elif [ "$1" = "--setup" ]; then
-install_dependencies $2
-else
+exit 1
+elif [ $var = "--setup" ]; then
+install_dependencies $@
+exit 1
+fi
 
-if [ "$1" = "--setup2" ]; then
-install_dependencies $2
+if [ $var = "-z" ] || [ $var = "--zip" ]; then
+IS_ZIPPING="yes"
+DIRECT_ZIPPING="yes"
+else
+IS_ZIPPING="no"
+DIRECT_ZIPPING="no"
 fi
 
 # add version to kernel name
 KERNEL_NAME+="-$KERNEL_VERS"
+
+a_print lb "Compiling for $DEVICE_MODEL started."
 
 # Path
 MainPath="$(readlink -f -- $(pwd))"
@@ -194,6 +208,40 @@ if [ "$BAZEL_BUILD" = "yes" ]; then
 else
     KernelPath="$MainPath"
 fi
+
+getcompilerString() {
+  if [ -z "$COMPILER_STRING" ]; then
+    if [ "$BAZEL_BUILD" = "yes" ]; then
+      export KBUILD_COMPILER_STRING="Bazel"
+    else
+      if [ -f "${ClangPath}/bin/clang" ]; then
+        export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
+      else
+        export KBUILD_COMPILER_STRING="Unknown"
+      fi
+    fi
+  else
+    export KBUILD_COMPILER_STRING="$COMPILER_STRING"
+  fi
+  if [ -z "$LINKER_STRING" ]; then
+    if [ -f "${ClangPath}/bin/ld.lld" ]; then
+      export KBUILD_LINKER_STRING="$(ld.lld --version)"
+    else
+      export KBUILD_LINKER_STRING="Unknown"
+    fi
+  else
+    export KBUILD_LINKER_STRING="$LINKER_STRING"
+  fi
+}
+
+fixClangGitIgnore() {
+  if [ ! -f '.gitignore' ]; then
+    touch .gitignore
+    echo "*" >> .gitignore
+  elif [ -f 'gitignore' ]; then
+    mv gitignore .gitignore
+  fi
+}
 
 # Clone toolchain
 [[ "$(pwd)" != "${MainPath}" ]] && cd "${MainPath}"
@@ -295,21 +343,7 @@ function getclang() {
     exit 1
   fi
   cd ${ClangPath}
-  if [ ! -f 'gitignore' ] || [ ! -f '.gitignore' ]; then
-    touch .gitignore
-    echo "*" >> .gitignore
-  elif [ -f 'gitignore' ]; then
-    mv gitignore .gitignore
-  fi
-  if [ "$COMPILER_STRING" = "default" ]; then
-    if [ -f "${ClangPath}/bin/clang" ]; then
-      export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
-    else
-      export KBUILD_COMPILER_STRING="Unknown"
-    fi
-  else
-    export KBUILD_COMPILER_STRING="$COMPILER_STRING"
-  fi
+  fixClangGitIgnore
   cd ..
 }
 
@@ -324,39 +358,34 @@ function updateclang() {
       a_print lg "No updates have been found, skipping"
     fi
     cd ..
-    elif [ "${ClangName}" = "zyc" ]; then
-      a_print lb "Clang is set to zyc, checking for updates..."
-      cd clang-zyc
-      ZycLatest="$(curl -k https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-lastbuild.txt 2>/dev/null)"
-      if [ "$(cat README.md | grep "Build Date : " | cut -d: -f2 | sed "s/ //g")" != "${ZycLatest}" ];then
-        a_print lb "An update have been found, updating..."
-        rm -rf ./*
-        wget -q $(curl -k https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt 2>/dev/null) -O "zyc-clang.tar.gz"
-        tar -xf zyc-clang.tar.gz
-        rm -f zyc-clang.tar.gz
-      else
-        a_print lg "No updates have been found, skipping..."
-      fi
-      cd ..
-    elif [ "${ClangName}" = "azure" ]; then
-      cd clang-azure
-      git fetch -q origin main
-      git pull origin main
-      cd ..
-    elif [ "${ClangName}" = "proton" ]; then
-      cd clang-proton
-      git fetch -q origin master
-      git pull origin master
-      cd ..
+  elif [ "${ClangName}" = "zyc" ]; then
+    a_print lb "Clang is set to zyc, checking for updates..."
+    cd clang-zyc
+    ZycLatest="$(curl -k https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-lastbuild.txt 2>/dev/null)"
+    if [ "$(cat README.md | grep "Build Date : " | cut -d: -f2 | sed "s/ //g")" != "${ZycLatest}" ];then
+      a_print lb "An update have been found, updating..."
+      rm -rf ./*
+      wget -q $(curl -k https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt 2>/dev/null) -O "zyc-clang.tar.gz"
+      tar -xf zyc-clang.tar.gz
+      rm -f zyc-clang.tar.gz
+    else
+      a_print lg "No updates have been found, skipping..."
+    fi
+    cd ..
+  elif [ "${ClangName}" = "azure" ]; then
+    cd clang-azure
+    git fetch -q origin main
+    git pull origin main
+    cd ..
+  elif [ "${ClangName}" = "proton" ]; then
+    cd clang-proton
+    git fetch -q origin master
+    git pull origin master
+    cd ..
   fi
 
   cd ${ClangPath}
-  if [ ! -f 'gitignore' ] || [ ! -f '.gitignore' ]; then
-    touch .gitignore
-    echo "*" >> .gitignore
-  elif [ -f 'gitignore' ]; then
-    mv gitignore .gitignore
-  fi
+  fixClangGitIgnore
   cd ..
 }
 
@@ -455,6 +484,12 @@ storeLocalVersion() {
   stored_localversion_contenet="$(cat ${KernelPath}/localversion)"
 }
 
+cloneAK3() {
+  if [ $IS_AK3_EXISTS = "no" ]; then
+    git clone -q --depth=1 ${AnyKernelRepo} -b ${AnyKernelBranch} ${AnyKernelPath}
+  fi
+}
+
 # root-function
 function ksu_patch() {
   IS_KERNELSU_CONFIG_EXISTS="$(grep '^CONFIG_KSU=' ${DEFCONFIG_FILE})"
@@ -543,9 +578,13 @@ changelogs() {
     sed -i -e "s/^/- /" "$ChangelogPath/$CHANGELOG_FILE_NAME"
     cd $old_path
 
-    GENERATED_CHANGELOG="$(head -n "$TELEGRAM_MAX_CHANGELOG" "${ChangelogPath}/${CHANGELOG_FILE_NAME}")"
-    PRINT_CHANGELOG="Changelog (GitHub):
+    if [ $TELEGRAM_MAX_CHANGELOG != "0" ]; then
+      GENERATED_CHANGELOG="$(head -n "$TELEGRAM_MAX_CHANGELOG" "${ChangelogPath}/${CHANGELOG_FILE_NAME}")"
+      PRINT_CHANGELOG="Changelog (GitHub):
 <blockquote expandable>$GENERATED_CHANGELOG</blockquote>"
+    else
+      PRINT_CHANGELOG=""
+    fi
   else
     PRINT_CHANGELOG=""
   fi
@@ -563,8 +602,11 @@ KERNELVERSION="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
 if [ $USE_CUSTOM_LOCALVERSION = "yes" ]; then
   if [ ! -z $CUSTOM_LOCALVERSION ]; then
     storeLocalVersion
-    if [ "$IS_KERNELSU" != "n" ]; then
-      CUSTOM_LOCALVERSION+="-KernelSU"
+    #if [ "$IS_KERNELSU" == "y" ] || [ "$IS_KERNELSU" == "m" ]; then
+    #  CUSTOM_LOCALVERSION+="-KernelSU"
+    #fi
+    if [ $USE_HEAD_COMMIT_HASH = "yes" ]; then
+      CUSTOM_LOCALVERSION+="/$(git rev-parse --short=$HEAD_COMMIT_HASH_LENGTH HEAD)"
     fi
     echo -n "-$CUSTOM_LOCALVERSION" > ${KernelPath}/localversion
   fi
@@ -625,6 +667,7 @@ getdtb() {
   elif [ "$USING_DTB" = "custom" ]; then
     DTS_DIR="${MainPath}/out/arch/arm64/boot/dts/vendor/$ARCH_VENDOR"
     DTB_FILE="$DTS_DIR/$BOARD_CODENAME.dtb"
+    #DTB_FILE="${MainPath}/out/arch/arm64/boot/dtb.img"
     DTBO_FILE="${MainPath}/out/arch/arm64/boot/dtbo.img"
   else
     a_print lr "USING_DTB config is not set, skipping DTB."
@@ -724,6 +767,14 @@ Compiler: $KBUILD_COMPILER_STRING"
         sed -i 's/# CONFIG_LLVM_POLLY is not set/CONFIG_LLVM_POLLY=y/g' $DEFCONFIG_FILE || echo ""
     fi
 
+    # check out dir if doesn't exist then create
+    if [ ! -d "$MainPath/out" ]; then
+      mkdir $MainPath/out
+      if [ ! -f "$MainPath/out/output.log" ]; then
+        touch $MainPath/out/output.log
+      fi
+    fi
+
     if [ "$ENABLE_OUTPUT_LOG" = "yes" ]; then
       StartMake |& tee out/output.log
     else
@@ -747,31 +798,19 @@ Compiler: $KBUILD_COMPILER_STRING"
         cd $KernelPath
         changelogs
         cd $MainPath
-        zipping
+        IS_ZIPPING="yes"
       else
         a_print lr "Failed to build $KERNEL_BOOTIMG_NAME, , Check console log to fix it!"
       fi
 
       cd ${MainPath}
     else
-      if [ ! -d "${AnyKernelPath}" ]; then
-        git clone -q --depth=1 ${AnyKernelRepo} -b ${AnyKernelBranch} ${AnyKernelPath}
-      fi
+      cloneAK3
+
       cp $IMAGE ${AnyKernelPath}
 
-      if [ "$USING_DTB" = "prebuilt" ]; then
-        if [ -f "$DTB_FILE" ]; then
-          cp $DTB_FILE ${AnyKernelPath}/dtb
-        fi
-        if [ -f "$DTBO_FILE" ]; then
-          cp $DTBO_FILE ${AnyKernelPath}/dtbo
-        fi
-      elif [ "$USING_DTB" = "custom" ]; then
-        python3 scripts/mkdtboimg.py create ${AnyKernelPath}/dtbo --page_size=4096 $DTBO_FILE
-      fi
-
       changelogs
-      zipping
+      IS_ZIPPING="yes"
     fi
   else
     timeOut=$(updateTime)
@@ -787,109 +826,89 @@ Compiler: $KBUILD_COMPILER_STRING"
   fi
 }
 
+genResultMsg() {
+if [ "$IS_KERNELSU" != "n" ]; then
+BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+
+Build date: $BUILD_DATE2
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
+Kernel Variant: $BUILD_VARIANT
+KernelSU Manager: $KERNELSU_MANAGER
+
+Completed in $timeOut
+
+$PRINT_CHANGELOG"
+else
+BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
+
+Build date: $BUILD_DATE2
+Kernel Name: $KERNEL_NAME
+Kernel Version: $KERNELVERSION
+Kernel Variant: $BUILD_VARIANT
+
+Completed in $timeOut
+
+$PRINT_CHANGELOG"
+fi
+}
+
 # Zipping function
 function zipping() {
-  if [ "$USING_BOOTIMG" = "yes" ]; then
-    zip -q -r9 ${KERNEL_ZIP} "boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img" "$CHANGELOG_FILE_NAME"
-  else
-    cd ${AnyKernelPath} || exit 1
-    ak_store_script_content
-    ak_update_kernel_name
-    if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
-      cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
-    fi
-    getdtb
-    zip -q -r9 ${KERNEL_ZIP} * -x .git README.md *placeholder
-  fi
-
-  timeOut=$(updateTime)
-
-  #upload ${KERNEL_ZIP}
-
-  # Fix empty compiler name if directly zipping using --zip option
-  if [ "$DIRECT_ZIP" = "yes" ]; then
-    if [ "$COMPILER_STRING" = "default" ]; then
-      if [ -f "${ClangPath}/bin/clang" ]; then
-        export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
-      else
-        export KBUILD_COMPILER_STRING="Unknown"
-      fi
+  if [ $IS_AK3_EXISTS = "yes" ]; then
+    if [ "$USING_BOOTIMG" = "yes" ]; then
+      zip -q -r9 ${KERNEL_ZIP} "boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img" "$CHANGELOG_FILE_NAME"
     else
-      export KBUILD_COMPILER_STRING="$COMPILER_STRING"
+      cd ${AnyKernelPath} || exit 1
+      ak_store_script_content
+      #ak_update_kernel_name
+      if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
+        cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
+      fi
+
+      getdtb
+
+      if [ ! -z "$USING_DTB" ]; then
+        if [ -f "$DTB_FILE" ]; then
+          cp $DTB_FILE ${AnyKernelPath}/dtb
+        fi
+        if [ -f "$DTBO_FILE" ]; then
+          cp $DTBO_FILE ${AnyKernelPath}/dtbo
+        fi
+      fi
+      
+      zip -q -r9 ${KERNEL_ZIP} * -x .git README.md *placeholder
     fi
+
+    timeOut=$(updateTime)
+
+    #upload ${KERNEL_ZIP}
+    
+    genResultMsg
+
+    a_print lg  "\n=========================================="
+    a_print lg  "Build completed in $timeOut"
+    a_print lg  "Kernel Name: $KERNEL_NAME"
+    a_print lg  "Final zip: $AnyKernelPath/$KERNEL_ZIP"
+    a_print lg  "Zip size: $(du -h "$AnyKernelPath/$KERNEL_ZIP" | cut -f1)"
+    a_print lg  "=========================================="
+
+    #echo $BUILD_RESULT
+    if [ "$TELEGRAM_UPLOADFILE" == "yes" ]; then
+      tgannounce $KERNEL_ZIP "$BUILD_RESULT"
+    else
+      tgm "$BUILD_RESULT"
+    fi
+    cd ..
+    cleanup
   fi
-  
-if [ "$IS_KERNELSU" != "n" ]; then
-  if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
-    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
-
-Build date: $BUILD_DATE2
-Kernel Name: $KERNEL_NAME
-Kernel Version: $KERNELVERSION
-Kernel Variant: $BUILD_VARIANT
-Compiler: $KBUILD_COMPILER_STRING
-KernelSU Manager: $KERNELSU_MANAGER
-
-Completed in $timeOut
-
-$PRINT_CHANGELOG"
-  else
-    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
-
-Build date: $BUILD_DATE2
-Kernel Name: $KERNEL_NAME
-Kernel Version: $KERNELVERSION
-Kernel Variant: $BUILD_VARIANT
-Compiler: $KBUILD_COMPILER_STRING
-KernelSU Manager: $KERNELSU_MANAGER
-
-$PRINT_CHANGELOG"
-  fi
-else
-  if [ "$TELEGRAM_ENABLE_COMPILE_TIME" == "yes" ]; then
-    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
-
-Build date: $BUILD_DATE2
-Kernel Name: $KERNEL_NAME
-Kernel Version: $KERNELVERSION
-Kernel Variant: $BUILD_VARIANT
-Compiler: $KBUILD_COMPILER_STRING
-
-Completed in $timeOut
-
-$PRINT_CHANGELOG"
-  else
-    BUILD_RESULT="✅ Compile Kernel for $DEVICE_MODEL successfully,
-
-Build date: $BUILD_DATE2
-Kernel Name: $KERNEL_NAME
-Kernel Version: $KERNELVERSION
-Kernel Variant: $BUILD_VARIANT
-Compiler: $KBUILD_COMPILER_STRING
-
-$PRINT_CHANGELOG"
-  fi
-fi
-
-  a_print lg "File: ${AnyKernelPath}/${KERNEL_ZIP}"
-  a_print lc "
-    Compieted in ${timeOut}"
-
-  #echo $BUILD_RESULT
-  if [ "$TELEGRAM_UPLOADFILE" == "yes" ]; then
-    tgannounce $KERNEL_ZIP "$BUILD_RESULT"
-  else
-    tgm "$BUILD_RESULT"
-  fi
-  cd ..
-  cleanup
 }
 
 # Cleanup function
 function cleanup() {
   cd ${MainPath}
   rm -rf $IMAGE
-  if [ "$CLEANUP" = "yes" ] || [ "$1" = "--cleanup" ]; then
+  if [ "$CLEANUP" = "yes" ] || [ $var = "--cleanup" ]; then
     a_print lb "Cleaning up..."
     rm -rf ${AnyKernelPath}
     rm -rf out/
@@ -909,7 +928,9 @@ function ctrl_c() {
 
 Reason: CtrL+C detected."
 
+if [ "$TGM_CTRL_C_TRAP_MSG" = "yes" ]; then
   tgm "$BUILD_RESULT"
+fi
   a_print lr "$BUILD_RESULT"
   cleanup
   exit 1
@@ -931,27 +952,37 @@ updateTime() {
   printf "%s" "$str"
 }
 
+# check ak3 directory
+if [ -d "${AnyKernelPath}" ]; then
+  IS_AK3_EXISTS=yes
+else
+  IS_AK3_EXISTS=no
+fi
+
+if [ "$DIRECT_ZIPPING" = "no" ]; then
+
+# trap ctrl+c only on full build
 trap ctrl_c INT
 
-if [ "$1" = "--zip" ] || [ "$1" = "--zipping" ]; then
-if [ ! -d "${AnyKernelPath}" ]; then
-  git clone -q --depth=1 ${AnyKernelRepo} -b ${AnyKernelBranch} ${AnyKernelPath}
-fi
-changelogs
-DIRECT_ZIP="yes"
-zipping
-ak_restore_script_content
-else
-DIRECT_ZIP="no"
 if [ "$BAZEL_BUILD" = "no" ]; then
+#cloneAK3
 getclang
 updateclang
 clonegcc
 fi
-#ksu_patch
-compile
-#zipping
-cleanup
 
+getcompilerString
+
+# clean build
+if [ $var = "-c" ] || [ $var = "--clean" ]; then
+  a_print lg "Cleaning up out directory for..."
+  rm -rf $MainPath/out
+  a_print lg "Out directory is now cleared, Ready for clean build"
 fi
+compile
+zipping
+cleanup
+else # direct zip
+getcompilerString
+zipping
 fi
