@@ -594,6 +594,7 @@ changelogs() {
 BUILD_DATE="$(date "+%Y%m%d")"
 BUILD_DATE2="$(date "+%B %d, %Y")"
 KBUILD_BUILD_TIMESTAMP="$(date)"
+KBUILD_BUILD_VERSION="1"
 VERSION="$(grep '^VERSION = ' ${KernelPath}/Makefile | sed 's/VERSION = *//g')"
 PATCHLEVEL="$(grep '^PATCHLEVEL = ' ${KernelPath}/Makefile | sed 's/PATCHLEVEL = *//g')"
 SUBLEVEL="$(grep '^SUBLEVEL = ' ${KernelPath}/Makefile | sed 's/SUBLEVEL = *//g')"
@@ -606,7 +607,7 @@ if [ $USE_CUSTOM_LOCALVERSION = "yes" ]; then
     #  CUSTOM_LOCALVERSION+="-KernelSU"
     #fi
     if [ $USE_HEAD_COMMIT_HASH = "yes" ]; then
-      CUSTOM_LOCALVERSION+="/$(git rev-parse --short=$HEAD_COMMIT_HASH_LENGTH HEAD)"
+      CUSTOM_LOCALVERSION+="-$(git rev-parse --short=$HEAD_COMMIT_HASH_LENGTH HEAD)"
     fi
     echo -n "-$CUSTOM_LOCALVERSION" > ${KernelPath}/localversion
   fi
@@ -666,7 +667,7 @@ getdtb() {
     fi
   elif [ "$USING_DTB" = "custom" ]; then
     DTS_DIR="${MainPath}/out/arch/arm64/boot/dts/vendor/$ARCH_VENDOR"
-    DTB_FILE="$DTS_DIR/$BOARD_CODENAME.dtb"
+    DTB_FILE="$DTS_DIR/$DEVICE_CODENAME.dtb"
     #DTB_FILE="${MainPath}/out/arch/arm64/boot/dtb.img"
     DTBO_FILE="${MainPath}/out/arch/arm64/boot/dtbo.img"
   else
@@ -862,8 +863,10 @@ function zipping() {
       cd ${AnyKernelPath} || exit 1
       ak_store_script_content
       #ak_update_kernel_name
-      if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
-        cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
+      if [ "$ENABLE_CHANGELOG" = "yes" ]; then
+        if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
+          cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
+        fi
       fi
 
       getdtb
