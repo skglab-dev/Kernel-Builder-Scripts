@@ -120,6 +120,7 @@ rsync schedtool squashfs-tools xsltproc zip zlib1g-dev"
   esac
 }
 
+SKIP_CLANG=0
 DIRECT_ZIPPING=0
 
 case "$var" in
@@ -130,7 +131,7 @@ case "$var" in
 esac
 
 # add version to kernel name
-KERNEL_NAME+="-$KERNEL_VERS"
+#KERNEL_NAME+="-$KERNEL_VERS"
 
 a_print lb "Compiling for $DEVICE_MODEL started."
 
@@ -143,38 +144,14 @@ CrossCompileFlagTriple="aarch64-linux-gnu-"
 
 IS_AK3_EXISTS=$([[ -d "$AnyKernelPath" ]] && echo 1 || echo 0)
 
-#
-BAZEL_BUILD=$([[ -d "$MainPath/common" ]] && echo 1 || echo 0)
-
-[[ "$BAZEL_BUILD" -eq 1 ]] && \
-  a_print lg "Common kernel detected, use bazel build method."
-
 KernelPath="$MainPath"
-if [[ "$BAZEL_BUILD" -eq 1 ]]; then
-  KernelPath="$MainPath/common"
-
-  [[ -d "$MainPath/prebuilts/kernel-build-tools" ]] && {
-    AVBTOOL="$MainPath/prebuilts/kernel-build-tools/linux-x86/bin/avbtool"
-    BOOT_SIGN_KEY="$MainPath/prebuilts/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
-  }
-
-  [[ -d "$MainPath/tools/mkbootimg" ]] && {
-    MKBOOTIMG="$MainPath/tools/mkbootimg/mkbootimg.py"
-    REPACK_BOOTIMG="$MainPath/tools/mkbootimg/repack_bootimg.py"
-    UNPACK_BOOTIMG="$MainPath/tools/mkbootimg/unpack_bootimg.py"
-  }
-fi
 
 getcompilerString() {
   if [ -z "$COMPILER_STRING" ]; then
-    if [[ "$BAZEL_BUILD" -eq 1 ]]; then
-      export KBUILD_COMPILER_STRING="Bazel"
+    if [ -f "${ClangPath}/bin/clang" ]; then
+      export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
     else
-      if [ -f "${ClangPath}/bin/clang" ]; then
-        export KBUILD_COMPILER_STRING="$(${ClangPath}/bin/clang --version | head -n 1)"
-      else
-        export KBUILD_COMPILER_STRING="Unknown"
-      fi
+      export KBUILD_COMPILER_STRING="Unknown"
     fi
   else
     export KBUILD_COMPILER_STRING="$COMPILER_STRING"
@@ -211,79 +188,81 @@ getclang() {
       zyc)        ClangPath="${MainClangPath}-zyc" ;;
       greenforce) ClangPath="${MainClangPath}-greenforce" ;;
       *)
-          a_print lr "Incorrect clang name. Check config.env for clang names."
-          exit 1
-          ;;
+        a_print lr "Incorrect clang name. Check config.env for clang names."
+        exit 1
+        ;;
   esac
 
   export PATH="${ClangPath}/bin:${PATH}"
 
   if [[ -f "${ClangPath}/bin/clang" ]]; then
+    SKIP_CLANG=1
     a_print lg "Clang already exists. Skipping..."
   else
     a_print lb "Clang is set to ${name}, cloning it..."
 
-  case "$name" in
-    azure)
-      git clone -q --depth=1 \
+  if [[ ${SKIP_CLANG:-0} -gt 0 ]]; then
+    case "$name" in
+      azure)
+        git clone -q --depth=1 \
           https://gitlab.com/Panchajanya1999/azure-clang \
           "${ClangPath}"
-      (
+        (
           cd "${ClangPath}" || exit
           wget -q \
-              "https://gist.github.com/dakkshesh07/240736992abf0ea6f0ee1d8acb57a400/raw/a835c3cf8d99925ca33cec3b210ee962904c9478/patch-for-old-glibc.sh" \
-              -O patch.sh
+            "https://gist.github.com/dakkshesh07/240736992abf0ea6f0ee1d8acb57a400/raw/a835c3cf8d99925ca33cec3b210ee962904c9478/patch-for-old-glibc.sh" \
+            -O patch.sh
           chmod +x patch.sh
           ./patch.sh
-      )
-      ;;
-    neutron)
-      mkdir -p "${ClangPath}"
-      (
+        )
+        ;;
+      neutron)
+        mkdir -p "${ClangPath}"
+        (
           cd "${ClangPath}" || exit
           curl -LOks \
-              https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
+            https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
           chmod +x antman
           ./antman -S
           ./antman --patch=glibc
-      )
-      ;;
-    proton)
-      git clone -q --depth=1 \
+        )
+        ;;
+      proton)
+        git clone -q --depth=1 \
           https://github.com/kdrag0n/proton-clang \
           "${ClangPath}"
-      ;;
-    zyc)
-      mkdir -p "${ClangPath}"
-
-      (
+        ;;
+      zyc)
+        mkdir -p "${ClangPath}"
+        (
           cd "${ClangPath}" || exit
           wget -q \
-              "$(curl -ks https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)" \
-              -O zyc-clang.tar.gz
+            "$(curl -ks https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)" \
+            -O zyc-clang.tar.gz
           tar -xf zyc-clang.tar.gz
           rm -f zyc-clang.tar.gz
-      )
-      ;;
-    greenforce)
-      mkdir -p "${ClangPath}"
-      (
+        )
+        ;;
+      greenforce)
+        mkdir -p "${ClangPath}"
+        (
           cd "${ClangPath}" || exit
           wget -q \
-              https://raw.githubusercontent.com/greenforce-project/greenforce_clang/main/get_latest_url.sh
+            https://raw.githubusercontent.com/greenforce-project/greenforce_clang/main/get_latest_url.sh
           source get_latest_url.sh
           rm -f get_latest_url.sh
           wget -q "$LATEST_URL" -O greenforce-clang.tar.gz
           tar -xf greenforce-clang.tar.gz
           rm -f greenforce-clang.tar.gz
-      )
-      ;;
-    esac
+        )
+        ;;
+      esac
+    fi
+    (
+      cd "${ClangPath}" || exit
+      fixClangGitIgnore
+    )
   fi
-  (
-    cd "${ClangPath}" || exit
-    fixClangGitIgnore
-  )
 }
 
 updateclang() {
@@ -291,49 +270,49 @@ updateclang() {
     neutron)
       a_print lb "Clang is set to neutron, checking for updates..."
       (
-          cd clang-neutron || exit
+        cd clang-neutron || exit
 
-          if ! ./antman -U | grep -q "Nothing to do"; then
-              ./antman --patch=glibc
-          else
-              a_print lg "No updates have been found, skipping..."
-          fi
+        if ! ./antman -U | grep -q "Nothing to do"; then
+          ./antman --patch=glibc
+        else
+          a_print lg "No updates have been found, skipping..."
+        fi
       )
       ;;
     zyc)
       a_print lb "Clang is set to zyc, checking for updates..."
       (
-          cd clang-zyc || exit
+        cd clang-zyc || exit
 
-          local latest current
+        local latest current
 
-          latest="$(curl -ks https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-lastbuild.txt)"
-          current="$(grep "Build Date :" README.md | cut -d: -f2 | tr -d ' ')"
+        latest="$(curl -ks https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-lastbuild.txt)"
+        current="$(grep "Build Date :" README.md | cut -d: -f2 | tr -d ' ')"
 
-          if [[ "$current" != "$latest" ]]; then
-              a_print lb "An update has been found, updating..."
+        if [[ "$current" != "$latest" ]]; then
+          a_print lb "An update has been found, updating..."
 
-              rm -rf ./*
-              wget -q \
-                  "$(curl -ks https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)" \
-                  -O zyc-clang.tar.gz
-              tar -xf zyc-clang.tar.gz
-              rm -f zyc-clang.tar.gz
-          else
-              a_print lg "No updates have been found, skipping..."
-          fi
+          rm -rf ./*
+          wget -q \
+            "$(curl -ks https://raw.githubusercontent.com/ZyCromerZ/Clang/main/Clang-main-link.txt)" \
+            -O zyc-clang.tar.gz
+          tar -xf zyc-clang.tar.gz
+          rm -f zyc-clang.tar.gz
+        else
+          a_print lg "No updates have been found, skipping..."
+        fi
       )
       ;;
     azure)
       (
-          cd clang-azure || exit
-          git pull -q origin main
+        cd clang-azure || exit
+        git pull -q origin main
       )
       ;;
     proton)
       (
-          cd clang-proton || exit
-          git pull -q origin master
+        cd clang-proton || exit
+        git pull -q origin master
       )
       ;;
   esac
@@ -341,34 +320,6 @@ updateclang() {
     cd "${ClangPath}" || exit
     fixClangGitIgnore
   )
-}
-
-clonegcc() {
-  if [[ "$CLANG_ONLY" -eq 1 ]]; then
-    CrossCompileFlag64="aarch64-linux-gnu-"
-    CrossCompileFlag32="arm-linux-gnueabi-"
-    return
-  fi
-
-  if [[ "$ENABLE_GCC64" -eq 1 ]]; then
-    [[ -d "$MainPath/gcc-64" ]] || git clone -q --depth=1 -b latest-7 \
-        https://github.com/rokibhasansagar/linaro-toolchain-latest.git gcc-64
-    CrossCompileFlag64="$MainPath/gcc-64/bin/aarch64-linux-gnu-"
-  else
-    CrossCompileFlag64="aarch64-linux-gnu-"
-  fi
-
-  if [[ "$ENABLE_GCC32" -eq 1 ]]; then
-    [[ -d "$MainPath/gcc-32" ]] || {
-        mkdir -p gcc-32
-        wget -qO gcc-arm.tar.gz https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/tags/android-12.1.0_r27.tar.gz
-        tar -C gcc-32 -zxf gcc-arm.tar.gz >/dev/null 2>&1
-        rm -f gcc-arm.tar.gz
-    }
-    CrossCompileFlag32="$MainPath/gcc-32/bin/arm-linux-androideabi-"
-  else
-    CrossCompileFlag32="arm-linux-gnueabi-"
-  fi
 }
 
 ak_store_script_content() {
@@ -557,13 +508,7 @@ case "$KERNEL_COMPRESSION" in
     ;;
 esac
 
-KERNEL_BOOTIMG_NAME="boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME"
-
-if [[ "$BAZEL_BUILD" -eq 1 ]]; then
-    IMAGE="${MainPath}/bazel-bin/common/kernel_aarch64/$KERNEL_IMAGE_NAME"
-else
-    IMAGE="${MainPath}/out/arch/arm64/boot/$KERNEL_IMAGE_NAME"
-fi
+IMAGE="${MainPath}/out/arch/arm64/boot/$KERNEL_IMAGE_NAME"
 
 getdtb() {
   if [[ "$USING_DTB" -eq 1 ]]; then
@@ -599,18 +544,7 @@ else
   KERNEL_VARIANT_NAME=""
 fi
 
-if [[ "$USING_BOOTIMG" -eq 1 ]]; then
-  KERNEL_ZIP="${KERNEL_NAME}${KERNEL_VARIANT_NAME}-boot-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
-else
-  KERNEL_ZIP="${KERNEL_NAME}${KERNEL_VARIANT_NAME}-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
-fi
-
-GenerateBootImage() {
-  a_print lg "Generating $KERNEL_BOOTIMG_NAME..."
-  $MKBOOTIMG --header_version 4 --kernel $KERNEL_IMAGE_NAME --output boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img
-  $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY
-  a_print lb "$KERNEL_BOOTIMG_NAME generated succesfully."
-}
+KERNEL_ZIP="${KERNEL_NAME}${KERNEL_VARIANT_NAME}-${DEVICE_CODENAME}-${BUILD_DATE}.zip"
 
 # Start Compile
 CORES="$(nproc --all)"
@@ -621,26 +555,19 @@ MAKE_ARGS=(
   ARCH="$ARCH"
   O=out
   CC=clang
-  CLANG_TRIPLE="$CrossCompileFlagTriple"
-  CROSS_COMPILE="$CrossCompileFlag64"
-  CROSS_COMPILE_ARM32="$CrossCompileFlag32"
+  LD=ld.lld
+  LLVM=1
+  LLVM_IAS=1
+  AR=llvm-ar
+  NM=llvm-nm
+  OBJCOPY=llvm-objcopy
+  OBJDUMP=llvm-objdump
+  STRIP=llvm-strip
+  KCFLAGS="-w"
 )
 
-if [[ "$CLANG_ONLY" -eq 1 ]]; then
-  MAKE_ARGS+=(
-    LD=ld.lld
-    LLVM=1
-    LLVM_IAS=1
-    AR=llvm-ar
-    NM=llvm-nm
-    OBJCOPY=llvm-objcopy
-    OBJDUMP=llvm-objdump
-    STRIP=llvm-strip
-  )
-fi
-
 StartMake() {
-  export MSM_ARCH=$BOARD_CODENAME
+  export SUBARCH=arm64
 
   if [[ "$ENABLE_MULTICONFIG" -eq 1 ]]; then
     # make O=out ARCH=$ARCH $BASE_CONFIG
@@ -648,7 +575,7 @@ StartMake() {
     BASE_CONFIG_PATH="${KernelPath}/arch/${ARCH}/configs/${BASE_CONFIG}"
     FRAGMENT_CONFIG_PATH="${KernelPath}/arch/${ARCH}/configs/vendor/${FRAGMENT_CONFIG}"
     if [ -f "$FRAGMENT_CONFIG_PATH" ]; then
-      #a_print lb "$FRAGMENT_CONFIG fragment detected, merging!"
+      a_print lb "$FRAGMENT_CONFIG fragment detected, merging!"
       MERGED_CONFIG_PATH="$KernelPath/arch/$ARCH/configs/merged_defconfig"
       awk -F= '!seen[$1]++' $BASE_CONFIG_PATH $FRAGMENT_CONFIG_PATH > $MERGED_CONFIG_PATH
       #bash scripts/kconfig/merge_config.sh -m .config $FRAGMENT_CONFIG_PATH
@@ -656,13 +583,13 @@ StartMake() {
       MERGED_CONFIG_PATH=""
       #a_print lr "$FRAGMENT_CONFIG config does not exists, abortting!"
     fi
-    make O=out ARCH=$ARCH merged_defconfig
+    make "${MAKE_ARGS[@]}" merged_defconfig
     # comment this code bellow if you want to take the merged config content
     if [ -f "$MERGED_CONFIG_PATH" ]; then
       rm -f $MERGED_CONFIG_PATH
     fi
   else
-    make O=out ARCH=$ARCH $DEVICE_DEFCONFIG
+    make "${MAKE_ARGS[@]}" $DEVICE_DEFCONFIG
   fi
 
   make "${MAKE_ARGS[@]}"
@@ -676,53 +603,31 @@ Kernel Version: $KERNELVERSION
 Kernel Variant: $BUILD_VARIANT
 Compiler: $KBUILD_COMPILER_STRING"
 
-  if [[ "$BAZEL_BUILD" -eq 1 ]]; then
-    tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist
+  if [[ "$ClangName" = "proton" ]]; then
+    sed -i 's/CONFIG_LLVM_POLLY=y/# CONFIG_LLVM_POLLY is not set/g' "$DEFCONFIG_FILE"
   else
-    if [[ "$ClangName" = "proton" ]]; then
-      sed -i 's/CONFIG_LLVM_POLLY=y/# CONFIG_LLVM_POLLY is not set/g' "$DEFCONFIG_FILE"
-    else
-      sed -i 's/# CONFIG_LLVM_POLLY is not set/CONFIG_LLVM_POLLY=y/g' "$DEFCONFIG_FILE"
-    fi
-
-    mkdir -p "$MainPath/out"
-    [ -f "$MainPath/out/output.log" ] || touch "$MainPath/out/output.log"
-
-    [[ "$ENABLE_OUTPUT_LOG" -eq 1 ]] && StartMake |& tee out/output.log || StartMake
+    sed -i 's/# CONFIG_LLVM_POLLY is not set/CONFIG_LLVM_POLLY=y/g' "$DEFCONFIG_FILE"
   fi
+
+  mkdir -p "$MainPath/out"
+  [ -f "$MainPath/out/output.log" ] || touch "$MainPath/out/output.log"
+
+  [[ "$ENABLE_OUTPUT_LOG" -eq 1 ]] && StartMake |& tee out/output.log || StartMake
 
   if [[ ! -f "$IMAGE" ]]; then
     timeOut=$(updateTime)
     BUILD_RESULT="❌ Compile Kernel for $DEVICE_MODEL failed, Check console log to fix it!"
     a_print lr "$BUILD_RESULT, Completed in $timeOut"
-    [[ "$BAZEL_BUILD" -eq 1 ]] && tgm "$BUILD_RESULT" || tgannounce "out/output.log" "$BUILD_RESULT"
+    tgannounce "out/output.log" "$BUILD_RESULT"
     cleanup
     exit 1
   fi
 
   cd "$MainPath" || exit 1
 
-  if [[ "$USING_BOOTIMG" -eq 1 ]]; then
-    a_print lg "Building $KERNEL_BOOTIMG_NAME.img"
-
-    mkdir -p bootimgs
-    cd bootimgs || exit 1
-
-    cp "$IMAGE" "$KERNEL_IMAGE_NAME"
-    GenerateBootImage
-
-    if [[ -f "$KERNEL_BOOTIMG_NAME.img" ]]; then
-      (cd "$KernelPath" && changelogs)
-    else
-      a_print lr "Failed to build $KERNEL_BOOTIMG_NAME, Check console log to fix it!"
-    fi
-
-    cd "$MainPath" || exit 1
-  else
-    cloneAK3
-    cp "$IMAGE" "$AnyKernelPath"
-    changelogs
-  fi
+  cloneAK3
+  cp "$IMAGE" "$AnyKernelPath"
+  changelogs
 }
 
 genResultMsg() {
@@ -733,7 +638,7 @@ Kernel Name: $KERNEL_NAME
 Kernel Version: $KERNELVERSION
 Kernel Variant: $BUILD_VARIANT"
 
-  [ "$IS_KERNELSU" != "n" ] && BUILD_RESULT+="
+  [ "$IS_KERNELSU" != "n" ] && [ -n "$KERNELSU_MANAGER" ] && BUILD_RESULT+="
 KernelSU Manager: $KERNELSU_MANAGER"
 
   BUILD_RESULT+="
@@ -746,31 +651,27 @@ $PRINT_CHANGELOG"
 # Zipping function
 zipping() {
   if [[ "$IS_AK3_EXISTS" -eq 1 ]]; then
-    if [[ "$USING_BOOTIMG" -eq 1 ]]; then
-      zip -q -r9 ${KERNEL_ZIP} "boot$BOOT_NAME_PREFIX$KERNEL_COMPRESSION_LEVEL_NAME.img" "$CHANGELOG_FILE_NAME"
-    else
-      cd ${AnyKernelPath} || exit 1
-      ak_store_script_content
-      #ak_update_kernel_name
-      if [ "$ENABLE_CHANGELOG" = "yes" ]; then
-        if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
-          cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
-        fi
+    cd ${AnyKernelPath} || exit 1
+    ak_store_script_content
+    #ak_update_kernel_name
+    if [ "$ENABLE_CHANGELOG" = "yes" ]; then
+      if [ -f "${ChangelogPath}/$CHANGELOG_FILE_NAME" ]; then
+        cp ${ChangelogPath}/$CHANGELOG_FILE_NAME ./
       fi
-
-      getdtb
-
-      if [ ! -z "$USING_DTB" ]; then
-        if [ -f "$DTB_FILE" ]; then
-          cp $DTB_FILE ${AnyKernelPath}/dtb
-        fi
-        if [ -f "$DTBO_FILE" ]; then
-          cp $DTBO_FILE ${AnyKernelPath}/dtbo
-        fi
-      fi
-      
-      zip -q -r9 ${KERNEL_ZIP} * -x .git README.md *placeholder
     fi
+
+    getdtb
+
+    if [ ! -z "$USING_DTB" ]; then
+      if [ -f "$DTB_FILE" ]; then
+        cp $DTB_FILE ${AnyKernelPath}/dtb
+      fi
+      if [ -f "$DTBO_FILE" ]; then
+        cp $DTBO_FILE ${AnyKernelPath}/dtbo
+      fi
+    fi
+    
+    zip -q -r9 ${KERNEL_ZIP} * -x .git README.md *placeholder
 
     timeOut=$(updateTime)
 
@@ -816,9 +717,7 @@ cleanup() {
 ctrl_c() {
   timeOut=$(updateTime)
 
-  BUILD_RESULT="❌ Compile Kernel for $DEVICE_MODEL was interrupted!
-
-Reason: CtrL+C detected."
+  BUILD_RESULT="❌ Compile Kernel for $DEVICE_MODEL was cancelled!"
 
 if [[ "$TGM_CTRL_C_TRAP_MSG" -eq 1 ]]; then
   tgm "$BUILD_RESULT"
@@ -847,13 +746,9 @@ updateTime() {
 [[ "$DIRECT_ZIPPING" -eq 0 ]] && {
   trap ctrl_c INT
 
-  [[ "$BAZEL_BUILD" -eq 0 ]] && {
-    #cloneAK3
-    getclang
-    updateclang
-    clonegcc
-  }
-
+  #cloneAK3
+  getclang
+  updateclang
   getcompilerString
 
   case "$var" in
